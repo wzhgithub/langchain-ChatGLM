@@ -180,28 +180,25 @@ class LocalDocQA:
         else:
             # docs = []
             logger.info("开始并行加载pdf文件")
-            # import multiprocessing
-            # import pathos.multiprocessing as multiprocessing
             
-            def task(file, vs_path):
+            # import torch.multiprocessing as mp
+            import pathos.multiprocessing as mp
+            
+            def task(file, vs_path):                
                 logger.info(f"{file}提交任务")
                 try:
                     docs = load_file(file)
                     logger.info(f"{file} 已成功加载, 开始生成向量库")
                     if vs_path and os.path.isdir(vs_path) and "index.faiss" in os.listdir(vs_path):
-                        vector_store = load_vector_store(vs_path, self.embeddings)
-                        vector_store.add_documents(docs)
-                        torch_gc()
+                        # vector_store = load_vector_store(vs_path, self.embeddings)
+                        # vector_store.add_documents(docs)
+                        # torch_gc()
+                        logger.info(f"{file} 已成功生成向量库")
                     else:
-                        # if not vs_path:
-                        #     f = lazy_pinyin(os.path.basename(file).replace('.pdf', ""))
-                        #     f = "".join(f)
-                        #     vs_path = os.path.join(KB_ROOT_PATH, f"""{f}_FAISS_vector_store""")
                         vector_store = MyFAISS.from_documents(docs, self.embeddings)  # docs 为Document列表
                         torch_gc()
 
                     vector_store.save_local(vs_path)
-                    # results_queue.put(vs_path)
                     logger.info(f"{file}生成向量库, vs_path:{vs_path}")
                     return vs_path
                 except Exception as e:
@@ -209,28 +206,23 @@ class LocalDocQA:
                     logger.info(f"{file} 未能成功加载")
                     return None
 
-            # pool = multiprocessing.Pool(processes=6)
-            # results_queue = multiprocessing.Queue()
-            # res = []
+            pool = mp.Pool(processes=5)
+            torch.multiprocessing.set_start_method('spawn')# good solution !!!!
+            res = []
             for file in filepath:
                 # r = pool.apply_async(task, args=(file, None,))
-                # res.append(r)
                 f = lazy_pinyin(os.path.basename(file).replace('.pdf', ""))
                 f = "".join(f)
                 vs_path = os.path.join(KB_ROOT_PATH, f"""{f}_faiss_vector_store""")
-                r = task(file, vs_path)
-                if r is not None:
-                    loaded_files.append(r)
-                # try:
-                #     docs += load_file(file)
-                #     logger.info(f"{file} 已成功加载")
-                #     loaded_files.append(file)
-                # except Exception as e:
-                #     logger.error(e)
-            # for r in res:
-            #     v = r.get()
-            #     if v is not None: 
-            #         loaded_files.append(v)
+                r = pool.apply_async(task, args=(file, vs_path,))
+                res.append(r)
+                # r = task(file, vs_path)
+                # if r is not None:
+                #     loaded_files.append(r)
+            for r in res:
+                v = r.get()
+                if v is not None:
+                    loaded_files.append(v)
             logger.info(f"{len(loaded_files)}份文件被建立索引")
         if len(loaded_files) > 0:
             # logger.info("文件加载完毕，正在生成向量库")
