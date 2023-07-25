@@ -6,7 +6,9 @@ from paddleocr import PaddleOCR
 import os
 import fitz
 import nltk
+import uuid
 from configs.model_config import NLTK_DATA_PATH
+from configs.model_config import KB_TMP_PATH, logger
 
 nltk.data.path = [NLTK_DATA_PATH] + nltk.data.path
 
@@ -15,7 +17,9 @@ class UnstructuredPaddlePDFLoader(UnstructuredFileLoader):
 
     def _get_elements(self) -> List:
         def pdf_ocr_txt(filepath, dir_path="tmp_files"):
-            full_dir_path = os.path.join(os.path.dirname(filepath), dir_path)
+            dir_path = str(uuid.uuid4())
+            full_dir_path = os.path.join(KB_TMP_PATH, dir_path)
+            logger.info(f"read full {full_dir_path}")
             if not os.path.exists(full_dir_path):
                 os.makedirs(full_dir_path)
             ocr = PaddleOCR(use_angle_cls=True, lang="ch", use_gpu=False, show_log=False)
