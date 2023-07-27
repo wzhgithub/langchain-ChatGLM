@@ -18,8 +18,9 @@ from langchain.docstore.document import Document
 from functools import lru_cache
 from textsplitter.zh_title_enhance import zh_title_enhance
 from langchain.chains.base import Chain
+from paddleocr import PaddleOCR
 
-
+ocr = PaddleOCR(use_angle_cls=True, lang="ch", use_gpu=True, show_log=False)
 # patch HuggingFaceEmbeddings to make it hashable
 def _embeddings_hash(self):
     return hash(self.model_name)
@@ -69,7 +70,7 @@ def load_file(filepath, sentence_size=SENTENCE_SIZE, using_zh_title_enhance=ZH_T
     elif filepath.lower().endswith(".pdf"):
         # 暂且将paddle相关的loader改为动态加载，可以在不上传pdf/image知识文件的前提下使用protobuf=4.x
         from loader import UnstructuredPaddlePDFLoader
-        loader = UnstructuredPaddlePDFLoader(filepath)
+        loader = UnstructuredPaddlePDFLoader(filepath, ocr)
         textsplitter = ChineseTextSplitter(pdf=True, sentence_size=sentence_size)
         docs = loader.load_and_split(textsplitter)
     elif filepath.lower().endswith(".jpg") or filepath.lower().endswith(".png"):
@@ -137,6 +138,8 @@ class LocalDocQA:
                  llm_model: Chain = None,
                  top_k=VECTOR_SEARCH_TOP_K,
                  ):
+        self.embedding_model = embedding_model
+        self.embedding_device = embedding_device
         self.llm_model_chain = llm_model
         self.embeddings = HuggingFaceEmbeddings(model_name=embedding_model_dict[embedding_model],
                                                 model_kwargs={'device': embedding_device})
@@ -179,51 +182,36 @@ class LocalDocQA:
 
         else:
             # docs = []
-            logger.info("开始并行加载pdf文件")
-            
+            logger.info("开始加载pdf文件")
             # import torch.multiprocessing as mp
-            import pathos.multiprocessing as mp
-            
-            def task(file, vs_path):                
-                logger.info(f"{file}提交任务")
-                try:
-                    docs = load_file(file)
-                    logger.info(f"{file} 已成功加载, 开始生成向量库")
-                    if vs_path and os.path.isdir(vs_path) and "index.faiss" in os.listdir(vs_path):
-                        # vector_store = load_vector_store(vs_path, self.embeddings)
-                        # vector_store.add_documents(docs)
-                        # torch_gc()
-                        logger.info(f"{file} 已成功生成向量库")
-                    else:
-                        vector_store = MyFAISS.from_documents(docs, self.embeddings)  # docs 为Document列表
-                        torch_gc()
-
-                    vector_store.save_local(vs_path)
-                    logger.info(f"{file}生成向量库, vs_path:{vs_path}")
-                    return vs_path
-                except Exception as e:
-                    logger.error(e)
-                    logger.info(f"{file} 未能成功加载")
-                    return None
-
-            pool = mp.Pool(processes=5)
-            torch.multiprocessing.set_start_method('spawn')# good solution !!!!
-            res = []
+            # import pathos.multiprocessing as mp
+            # ctx = mp.get_context('forkserver')
+            # pool = mp.Pool(processes=1)
             for file in filepath:
                 # r = pool.apply_async(task, args=(file, None,))
                 f = lazy_pinyin(os.path.basename(file).replace('.pdf', ""))
                 f = "".join(f)
                 vs_path = os.path.join(KB_ROOT_PATH, f"""{f}_faiss_vector_store""")
-                r = pool.apply_async(task, args=(file, vs_path,))
-                res.append(r)
+                v = Task(file, vs_path).run()
                 # r = task(file, vs_path)
                 # if r is not None:
                 #     loaded_files.append(r)
-            for r in res:
-                v = r.get()
                 if v is not None:
-                    loaded_files.append(v)
+                    docs, file, vs_path = v
+                    logger.info(f"{file} 已成功加载, 开始生成向量库")
+                    # if vs_path and os.path.isdir(vs_path) and "index.faiss" in os.listdir(vs_path):
+                        # vector_store = load_vector_store(vs_path, self.embeddings)
+                        # vector_store.add_documents(docs)
+                        # torch_gc()    
+                    # else:
+                    vector_store = MyFAISS.from_documents(docs, self.embeddings)  # docs 为Document列表
+                    torch_gc()
+
+                    vector_store.save_local(vs_path)
+                    logger.info(f"{file}生成向量库, vs_path:{vs_path}")
+                    loaded_files.append(vs_path)
             logger.info(f"{len(loaded_files)}份文件被建立索引")
+                
         if len(loaded_files) > 0:
             # logger.info("文件加载完毕，正在生成向量库")
             # if vs_path and os.path.isdir(vs_path) and "index.faiss" in os.listdir(vs_path):
@@ -265,6 +253,17 @@ class LocalDocQA:
         except Exception as e:
             logger.error(e)
             return None, [one_title]
+        
+    def get_knowledge_local(self, pinyin_query, vs_path):
+        vector_store = load_vector_store(vs_path, self.embeddings)
+        vector_store.chunk_size = self.chunk_size
+        vector_store.chunk_conent = self.chunk_conent
+        vector_store.score_threshold = self.score_threshold
+        related_docs_with_score = vector_store.similarity_search_with_score(pinyin_query, k=1)
+        torch_gc()
+        if (len(related_docs_with_score) > 0):
+            return related_docs_with_score[0][0].page_content
+        return None
 
     def get_knowledge_based_answer(self, query, vs_path, chat_history=[], streaming: bool = STREAMING):
         vector_store = load_vector_store(vs_path, self.embeddings)
@@ -357,6 +356,25 @@ class LocalDocQA:
         else:
             return [os.path.split(doc)[-1] for doc in docs]
 
+class Task:
+    def __init__(self, file, vs_path):
+        self.file = file
+        self.vs_path = vs_path
+
+    def run(self):
+        file = self.file
+        vs_path = self.vs_path
+        logger.info(f"{file}提交任务")
+        try:
+            if vs_path and os.path.isdir(vs_path) and "index.faiss" in os.listdir(vs_path):
+                logger.info(f"{file} 已成功生成向量库")
+                return None
+            docs = load_file(file)
+            return (docs, file, vs_path)
+        except Exception as e:
+            logger.error(e)
+            logger.info(f"{file} 未能成功加载")
+            return None
 
 if __name__ == "__main__":
     # 初始化消息
