@@ -19,6 +19,7 @@ from functools import lru_cache
 from textsplitter.zh_title_enhance import zh_title_enhance
 from langchain.chains.base import Chain
 from paddleocr import PaddleOCR
+import jieba
 
 ocr = PaddleOCR(use_angle_cls=True, lang="ch", use_gpu=True, show_log=False)
 # patch HuggingFaceEmbeddings to make it hashable
@@ -290,7 +291,12 @@ class LocalDocQA:
         torch_gc()
         if (len(related_docs_with_score) > 0):
             logger.info(f"related_docs_with_score:{related_docs_with_score}")
-            return related_docs_with_score[0][1].split(' ')[0]
+            for d in related_docs_with_score:
+                for e in d[1].split(' '):
+                    if '年度报告' in e:
+                        return e
+            logger.info(f"not found report in index doc:{related_docs_with_score}")
+            return None
         return None
 
     def get_knowledge_based_answer(self, query, vs_path, chat_history=[], streaming: bool = STREAMING):
@@ -298,7 +304,14 @@ class LocalDocQA:
         vector_store.chunk_size = self.chunk_size
         vector_store.chunk_conent = self.chunk_conent
         vector_store.score_threshold = self.score_threshold
-        related_docs_with_score = vector_store.similarity_search_with_score(query, k=self.top_k)
+        query_for_searh = query.split('?')[0]
+        related_docs_with_score = vector_store.similarity_search_with_score(query_for_searh, k=self.top_k)
+        cut = jieba.lcut(query_for_searh)
+        for e in cut:
+            if len(e) >= 3 and '集团' not in e and'公司' not in e and '20' not in e:
+                logging.info(f'search key word:{e}')
+                for i in vector_store.similarity_search_with_score(e, k=self.top_k):
+                    related_docs_with_score.append(i)
         torch_gc()
         if len(related_docs_with_score) > 0:
             prompt = generate_prompt(related_docs_with_score, query)

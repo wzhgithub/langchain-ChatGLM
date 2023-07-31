@@ -205,8 +205,8 @@ llm_model_dict = {
 }
 
 # LLM 名称
-# LLM_MODEL = "chatglm-6b"
-LLM_MODEL = "chatglm2-6b"
+LLM_MODEL = "chatglm2-6b-int4"
+# LLM_MODEL = "chatglm2-6b"
 # 量化加载8bit 模型
 LOAD_IN_8BIT = False
 # Load the model with bfloat16 precision. Requires NVIDIA Ampere GPU.
@@ -236,7 +236,13 @@ KB_TMP_PATH = '/home/zh.wang/chatglm_llm_fintech_raw_dataset/knowledge_base/tmp'
 PROMPT_TEMPLATE = """已知信息：
 {context} 
 
-根据上述已知信息，简洁和专业的来回答用户的问题。如果无法从中得到答案，请说 “根据已知信息无法回答该问题” 或 “没有提供足够的相关信息”，不允许在答案中添加编造成分，答案请使用中文。 问题是：{question}"""
+根据上述已知信息，简洁和专业的来回答用户的问题。
+如果无法从中得到答案，请说“根据已知信息无法回答该问题”或“没有提供足够的相关信息”。
+不允许在答案中添加编造成分，答案请使用中文，答案字数不要超过500个字。 
+如果需要问题需要回答数字结果，请直接给出数字答案。
+问题是：{question}
+回答：
+"""
 
 # 缓存知识库数量,如果是ChatGLM2,ChatGLM2-int4,ChatGLM2-int8模型若检索效果不好可以调成’10’
 CACHED_VS_NUM = 1
@@ -251,10 +257,10 @@ CHUNK_SIZE = 250
 LLM_HISTORY_LEN = 3
 
 # 知识库检索时返回的匹配内容条数
-VECTOR_SEARCH_TOP_K = 5
+VECTOR_SEARCH_TOP_K = 3
 
 # 知识检索内容相关度 Score, 数值范围约为0-1100，如果为0，则不生效，建议设置为500左右，经测试设置为小于500时，匹配结果更精准
-VECTOR_SEARCH_SCORE_THRESHOLD = 500
+VECTOR_SEARCH_SCORE_THRESHOLD = 300
 
 NLTK_DATA_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "nltk_data")
 

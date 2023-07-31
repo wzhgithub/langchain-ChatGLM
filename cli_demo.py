@@ -11,10 +11,10 @@ nltk.data.path = [NLTK_DATA_PATH] + nltk.data.path
 # Show reply with source text from input document
 REPLY_WITH_SOURCE = True
 
-def qa_main(file_index_path):
-    llm_model_ins = None
-    # llm_model_ins = shared.loaderLLM()
-    # llm_model_ins.history_len = LLM_HISTORY_LEN
+def qa_main(file_index_path, submit_file):
+    # llm_model_ins = None
+    llm_model_ins = shared.loaderLLM()
+    llm_model_ins.history_len = LLM_HISTORY_LEN
 
     local_doc_qa = LocalDocQA()
     local_doc_qa.init_cfg(llm_model=llm_model_ins,
@@ -23,45 +23,74 @@ def qa_main(file_index_path):
                           top_k=VECTOR_SEARCH_TOP_K)
     import jsonlines
     from pypinyin import lazy_pinyin
+    name_set = {}
+    with open('name.txt', 'r') as f:
+        for line in f:
+            cl = line.split('__')
+            fn = line.replace('.pdf', '')
+            v = name_set.get(cl[1],[])
+            v.append(fn)
+            name_set[cl[1]] = v
+            v = name_set.get(cl[-3],[])
+            v.append(fn)
+            name_set[cl[-3]] = v
     
+    logger.info(f"debug name set:{len(name_set)}")
     with jsonlines.open("submit.jsonl", mode='w') as sjl:
         lines = []
-        with jsonlines.open('submit_example.jsonl', 'r') as jl:
+        with jsonlines.open(submit_file, 'r') as jl:
             for data in jl:
                 query = data['question']
-                vs_path = local_doc_qa.get_knowledge_local(query, vs_path=file_index_path)
+                data['answer'] = "信息不足，无法回答。"
+                lines.append(data)
+                vs_path = get_name_set_path(name_set, query)
+                logger.info(f"from name set get vs_path:{vs_path}")
+                vs_path = local_doc_qa.get_knowledge_local(query, vs_path=file_index_path) if vs_path is None else vs_path.strip()
                 logger.info(f"query index pdf:{vs_path}")
                 if vs_path is None:
                     logging.info(f"not find data:{data} faiss index")
                     continue
                 pinyin_path = "".join(lazy_pinyin(vs_path))
                 index_vs_path = os.path.join('/home/zh.wang/chatglm_llm_fintech_raw_dataset/knowledge_base/index', pinyin_path)
-                logger.info(f'load index path:{index_vs_path}')
-                if not os.path.exists(index_vs_path):
-                    file = os.path.join('/home/zh.wang/fintech_raw_dataset/chatglm_llm_fintech_raw_dataset/allpdf', f"{vs_path}.pdf")
+                index_vs_path = index_vs_path.strip()
+                is_not_exists = not os.path.exists(index_vs_path)
+                logger.info(f'load index path:{index_vs_path} not exist:{is_not_exists}')
+                if is_not_exists:
+                    pdf_vs_path = vs_path if "pdf" in vs_path else f"{vs_path}.pdf"
+                    file = os.path.join('/home/zh.wang/fintech_raw_dataset/chatglm_llm_fintech_raw_dataset/allpdf', pdf_vs_path)
                     k, _ = local_doc_qa.init_knowledge_vector_store(file, vs_path=index_vs_path)
                     if not k:
                         logging.info(f"not create {file} faiss index")
                         continue
                 else:
                     logger.info(f"already create index path:{index_vs_path}")
-                continue
                 for resp, _ in local_doc_qa.get_knowledge_based_answer(query=query,
                                                                        vs_path=index_vs_path,
                                                                        chat_history=[],
                                                                        streaming=False):
                         
                     r = resp['result']
-                    print(f"id:{data['id']}\tanwser:{r}")
+                    logger.info(f"id:{data['id']}\tanwser:{r}")
                     data['answer'] = r
-                    lines.append(data)
                     if REPLY_WITH_SOURCE:
                         source_text = [f"""出处 [{inum + 1}] {os.path.split(doc.metadata['source'])[-1]}：\n\n{doc.page_content}\n\n"""
                                     # f"""相关度：{doc.metadata['score']}\n\n"""
                                     for inum, doc in
                                     enumerate(resp["source_documents"])]
-                        print("\n\n" + "\n\n".join(source_text))
+                        logger.info("\n\n" + "\n\n".join(source_text))
         sjl.write_all(lines)
+
+def get_name_set_path(name_set, query):
+    vs_path = None
+    for k in name_set:
+        if k in query:
+            fs = name_set[k]
+            for f in fs:
+                year = f.split('__')[-2]
+                if year in query:
+                    vs_path = f
+                    break
+    return vs_path
 
 
 def main(gpus, index, device_num, debug):

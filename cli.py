@@ -58,13 +58,14 @@ def start_api(ip, port, **kwargs):
 
 @start.command(name="qa", context_settings=dict(help_option_names=['-h', '--help']))
 @click.option('--index_path', default='/home/zh.wang/fintech_raw_dataset/index', show_default=True, type=str, help='faiss index dir index')
-def start_qa(index_path):
+@click.option('--submit_file', default='./submit_example_10.jsonl', show_default=True, type=str, help='submit file name')
+def start_qa(index_path, submit_file):
     print("通过cli.py使用进行qa")
     from models import shared
     from models.loader import LoaderCheckPoint
     from models.loader.args import DEFAULT_ARGS
     shared.loaderCheckPoint = LoaderCheckPoint(DEFAULT_ARGS)
-    qa_start(index_path)
+    qa_start(index_path, submit_file)
 
 #     # 通过cli.py调用cli_demo时需要在cli.py里初始化模型，否则会报错：
     # langchain-ChatGLM: error: unrecognized arguments: start cli

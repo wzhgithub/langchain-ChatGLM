@@ -14,7 +14,7 @@ import transformers
 
 
 class ChatGLMLLMChain(BaseAnswer, Chain, ABC):
-    max_token: int = 10000
+    max_token: int = 15000
     temperature: float = 0.01
     # 相关度
     top_p = 0.4
