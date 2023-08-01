@@ -26,6 +26,7 @@ def qa_main(file_index_path, submit_file):
     name_set = {}
     with open('name.txt', 'r') as f:
         for line in f:
+            line = line.strip('\n')
             cl = line.split('__')
             fn = line.replace('.pdf', '')
             v = name_set.get(cl[1],[])
@@ -43,31 +44,32 @@ def qa_main(file_index_path, submit_file):
                 query = data['question']
                 data['answer'] = "信息不足，无法回答。"
                 lines.append(data)
-                vs_path = get_name_set_path(name_set, query)
-                logger.info(f"from name set get vs_path:{vs_path}")
-                vs_path = local_doc_qa.get_knowledge_local(query, vs_path=file_index_path) if vs_path is None else vs_path.strip()
-                logger.info(f"query index pdf:{vs_path}")
-                if vs_path is None:
-                    logging.info(f"not find data:{data} faiss index")
-                    continue
-                pinyin_path = "".join(lazy_pinyin(vs_path))
-                index_vs_path = os.path.join('/home/zh.wang/chatglm_llm_fintech_raw_dataset/knowledge_base/index', pinyin_path)
-                index_vs_path = index_vs_path.strip()
-                is_not_exists = not os.path.exists(index_vs_path)
-                logger.info(f'load index path:{index_vs_path} not exist:{is_not_exists}')
-                if is_not_exists:
-                    pdf_vs_path = vs_path if "pdf" in vs_path else f"{vs_path}.pdf"
-                    file = os.path.join('/home/zh.wang/fintech_raw_dataset/chatglm_llm_fintech_raw_dataset/allpdf', pdf_vs_path)
-                    k, _ = local_doc_qa.init_knowledge_vector_store(file, vs_path=index_vs_path)
-                    if not k:
-                        logging.info(f"not create {file} faiss index")
-                        continue
-                else:
-                    logger.info(f"already create index path:{index_vs_path}")
-                for resp, _ in local_doc_qa.get_knowledge_based_answer(query=query,
-                                                                       vs_path=index_vs_path,
-                                                                       chat_history=[],
-                                                                       streaming=False):
+                vs_paths = get_name_set_path(name_set, query)
+                logger.info(f"from name set get vs_path:{vs_paths}")
+                if len(vs_paths) == 0:
+                    logger.info(f"query:{query} not find pdf")
+                    continue;
+                index_vs_paths = []
+                for vs_path in vs_paths:
+                    pinyin_path = "".join(lazy_pinyin(vs_path))
+                    index_vs_path = os.path.join('/home/zh.wang/chatglm_llm_fintech_raw_dataset/knowledge_base/index', pinyin_path).strip()
+                    new_index = os.path.join('/share-dc/zh.wang/index', pinyin_path).strip()
+                    is_not_exists = not os.path.exists(index_vs_path)
+                    logger.info(f'load index path:{index_vs_path} not exist:{is_not_exists}')
+                    if is_not_exists:
+                        index_vs_path = new_index
+                        if not os.path.exists(index_vs_path):
+                            logger.info(f'load new index path:{index_vs_path}')
+                            pdf_vs_path = vs_path if "pdf" in vs_path else f"{vs_path}.pdf"
+                            file = os.path.join('/home/zh.wang/fintech_raw_dataset/chatglm_llm_fintech_raw_dataset/allpdf', pdf_vs_path)
+                            k, _ = local_doc_qa.init_knowledge_vector_store(file, vs_path=index_vs_path)
+                            if not k:
+                                logging.info(f"not create {file} faiss index")
+                                continue
+                    else:
+                        logger.info(f"already create index path:{index_vs_path}")
+                    index_vs_paths.append(index_vs_path)
+                for resp, _ in local_doc_qa.get_knowledge_based_answer_list(query=query, paths=index_vs_paths):
                         
                     r = resp['result']
                     logger.info(f"id:{data['id']}\tanwser:{r}")
@@ -81,15 +83,15 @@ def qa_main(file_index_path, submit_file):
         sjl.write_all(lines)
 
 def get_name_set_path(name_set, query):
-    vs_path = None
+    vs_path = []
     for k in name_set:
         if k in query:
             fs = name_set[k]
             for f in fs:
                 year = f.split('__')[-2]
                 if year in query:
-                    vs_path = f
-                    break
+                    vs_path.append(f)
+                    continue
     return vs_path
 
 

@@ -20,8 +20,15 @@ from textsplitter.zh_title_enhance import zh_title_enhance
 from langchain.chains.base import Chain
 from paddleocr import PaddleOCR
 import jieba
+jieba.load_userdict('user_dict.txt')
+user_set = set()
+with open('user_dict.txt', 'r') as uf:
+    for line in uf:
+        ls = line.strip('\n').split(' ')[0]
+        if not ls.isdigit() and not '-' in ls:
+            user_set.add(ls)
 
-ocr = PaddleOCR(use_angle_cls=True, lang="ch", use_gpu=True, show_log=False)
+# ocr = PaddleOCR(use_angle_cls=True, lang="ch", use_gpu=True, show_log=False)
 # patch HuggingFaceEmbeddings to make it hashable
 def _embeddings_hash(self):
     return hash(self.model_name)
@@ -71,7 +78,7 @@ def load_file(filepath, sentence_size=SENTENCE_SIZE, using_zh_title_enhance=ZH_T
     elif filepath.lower().endswith(".pdf"):
         # 暂且将paddle相关的loader改为动态加载，可以在不上传pdf/image知识文件的前提下使用protobuf=4.x
         from loader import UnstructuredPaddlePDFLoader
-        loader = UnstructuredPaddlePDFLoader(filepath, ocr)
+        loader = UnstructuredPaddlePDFLoader(filepath)
         textsplitter = ChineseTextSplitter(pdf=True, sentence_size=sentence_size)
         docs = loader.load_and_split(textsplitter)
     elif filepath.lower().endswith(".jpg") or filepath.lower().endswith(".png"):
@@ -273,8 +280,6 @@ class LocalDocQA:
             docs.append(Document(page_content=f, metadata=metadata))
             docs.append(Document(page_content=fs[1], metadata=metadata))
             docs.append(Document(page_content=fs[-3], metadata=metadata))
-
-        return
         vector_store = MyFAISS.from_documents(docs, self.embeddings)  # docs 为Document列表
         torch_gc()
         vector_store.save_local(vs_path)
@@ -298,6 +303,41 @@ class LocalDocQA:
             logger.info(f"not found report in index doc:{related_docs_with_score}")
             return None
         return None
+    
+    def get_knowledge_based_answer_list(self, query, paths=[]):
+        docs = []
+        for vs_path in paths:
+            vector_store = load_vector_store(vs_path, self.embeddings)
+            vector_store.chunk_size = self.chunk_size
+            vector_store.chunk_conent = self.chunk_conent
+            vector_store.score_threshold = self.score_threshold
+            query_for_searh = query.split('?')[0]
+            related_docs_with_score = vector_store.similarity_search_with_score(query_for_searh, k=self.top_k)
+            cut = jieba.lcut(query_for_searh)
+            for e in cut:
+                if e not in user_set and len(e) >= 2:
+                    logging.info(f'search key word:{e}')
+                    for i in vector_store.similarity_search_with_score(e, k=self.top_k):
+                        related_docs_with_score.append(i)
+            torch_gc()
+            docs.extend(related_docs_with_score)
+        
+        if len(docs) > 0:
+            prompt = generate_prompt(related_docs_with_score, query)
+        else:
+            prompt = query
+
+        answer_result_stream_result = self.llm_model_chain(
+            {"prompt": prompt, "history": [], "streaming": False})
+
+        for answer_result in answer_result_stream_result['answer_result_stream']:
+            resp = answer_result.llm_output["answer"]
+            history = answer_result.history
+            history[-1][0] = query
+            response = {"query": query,
+                        "result": resp,
+                        "source_documents": related_docs_with_score}
+            yield response, history
 
     def get_knowledge_based_answer(self, query, vs_path, chat_history=[], streaming: bool = STREAMING):
         vector_store = load_vector_store(vs_path, self.embeddings)
@@ -308,7 +348,7 @@ class LocalDocQA:
         related_docs_with_score = vector_store.similarity_search_with_score(query_for_searh, k=self.top_k)
         cut = jieba.lcut(query_for_searh)
         for e in cut:
-            if len(e) >= 3 and '集团' not in e and'公司' not in e and '20' not in e:
+            if len(e) >= 2 and e not in user_set:
                 logging.info(f'search key word:{e}')
                 for i in vector_store.similarity_search_with_score(e, k=self.top_k):
                     related_docs_with_score.append(i)
