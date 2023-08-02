@@ -4,7 +4,7 @@ import os
 import logging
 import uuid
 
-LOG_FORMAT = "%(levelname) -5s %(asctime)s" "-1d: %(message)s"
+LOG_FORMAT = "%(levelname) -5s %(asctime)s %(filename)s:%(lineno)d" "-1d: %(message)s"
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 logging.basicConfig(format=LOG_FORMAT)

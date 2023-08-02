@@ -44,53 +44,61 @@ def qa_main(file_index_path, submit_file):
                 query = data['question']
                 data['answer'] = "信息不足，无法回答。"
                 lines.append(data)
-                vs_paths = get_name_set_path(name_set, query)
-                logger.info(f"from name set get vs_path:{vs_paths}")
-                if len(vs_paths) == 0:
-                    logger.info(f"query:{query} not find pdf")
-                    continue;
-                index_vs_paths = []
-                for vs_path in vs_paths:
-                    pinyin_path = "".join(lazy_pinyin(vs_path))
-                    index_vs_path = os.path.join('/home/zh.wang/chatglm_llm_fintech_raw_dataset/knowledge_base/index', pinyin_path).strip()
-                    new_index = os.path.join('/share-dc/zh.wang/index', pinyin_path).strip()
-                    is_not_exists = not os.path.exists(index_vs_path)
-                    logger.info(f'load index path:{index_vs_path} not exist:{is_not_exists}')
-                    if is_not_exists:
-                        index_vs_path = new_index
-                        if not os.path.exists(index_vs_path):
-                            logger.info(f'load new index path:{index_vs_path}')
-                            pdf_vs_path = vs_path if "pdf" in vs_path else f"{vs_path}.pdf"
-                            file = os.path.join('/home/zh.wang/fintech_raw_dataset/chatglm_llm_fintech_raw_dataset/allpdf', pdf_vs_path)
-                            k, _ = local_doc_qa.init_knowledge_vector_store(file, vs_path=index_vs_path)
-                            if not k:
-                                logging.info(f"not create {file} faiss index")
-                                continue
-                    else:
-                        logger.info(f"already create index path:{index_vs_path}")
-                    index_vs_paths.append(index_vs_path)
-                for resp, _ in local_doc_qa.get_knowledge_based_answer_list(query=query, paths=index_vs_paths):
-                        
-                    r = resp['result']
-                    logger.info(f"id:{data['id']}\tanwser:{r}")
-                    data['answer'] = r
-                    if REPLY_WITH_SOURCE:
-                        source_text = [f"""出处 [{inum + 1}] {os.path.split(doc.metadata['source'])[-1]}：\n\n{doc.page_content}\n\n"""
-                                    # f"""相关度：{doc.metadata['score']}\n\n"""
-                                    for inum, doc in
-                                    enumerate(resp["source_documents"])]
-                        logger.info("\n\n" + "\n\n".join(source_text))
+                try:
+                    vs_paths = get_name_set_path(name_set, query)
+                    logger.info(f"from name set get vs_path:{vs_paths}")
+                    if len(vs_paths) == 0:
+                        logger.info(f"query:{query} not find pdf")
+                        continue;
+                    index_vs_paths = []
+                    for vs_path in vs_paths:
+                        pinyin_path = "".join(lazy_pinyin(vs_path))
+                        index_vs_path = os.path.join('/home/zh.wang/chatglm_llm_fintech_raw_dataset/knowledge_base/index', pinyin_path).strip()
+                        new_index = os.path.join('/share-dc/zh.wang/index', pinyin_path).strip()
+                        is_not_exists = not os.path.exists(index_vs_path)
+                        logger.info(f'load index path:{index_vs_path} not exist:{is_not_exists}')
+                        if is_not_exists:
+                            index_vs_path = new_index
+                            if not os.path.exists(index_vs_path):
+                                logger.info(f'load new index path:{index_vs_path}')
+                                pdf_vs_path = vs_path if "pdf" in vs_path else f"{vs_path}.pdf"
+                                file = os.path.join('/home/zh.wang/fintech_raw_dataset/chatglm_llm_fintech_raw_dataset/allpdf', pdf_vs_path)
+                                k, _ = local_doc_qa.init_knowledge_vector_store(file, vs_path=index_vs_path)
+                                logging.info(f"index path:{k}")
+                                if not k:
+                                    logging.info(f"not create {file} faiss index")
+                                    continue
+                        else:
+                            logger.info(f"already create index path:{index_vs_path}")
+                        index_vs_paths.append(index_vs_path)
+                    for resp, _ in local_doc_qa.get_knowledge_based_answer_list(query=query, paths=index_vs_paths):
+                            
+                        r = resp['result']
+                        logger.info(f"id:{data['id']}\tanwser:{r}")
+                        data['answer'] = r
+                        if REPLY_WITH_SOURCE:
+                            source_text = [f"""出处 [{inum + 1}] {os.path.split(doc.metadata['source'])[-1]}：\n\n{doc.page_content}\n\n"""
+                                        # f"""相关度：{doc.metadata['score']}\n\n"""
+                                        for inum, doc in
+                                        enumerate(resp["source_documents"])]
+                            logger.info("\n\n" + "\n\n".join(source_text))
+                except:
+                    import traceback
+                    traceback.print_exc()
+                    continue
         sjl.write_all(lines)
 
 def get_name_set_path(name_set, query):
-    vs_path = []
+    vs_path = set()
     for k in name_set:
         if k in query:
             fs = name_set[k]
             for f in fs:
                 year = f.split('__')[-2]
-                if year in query:
-                    vs_path.append(f)
+                year = year.replace('年', '')
+                dy = int(year)
+                if year in query or str(dy+1) in query:
+                    vs_path.add(f)
                     continue
     return vs_path
 
@@ -179,8 +187,22 @@ if __name__ == "__main__":
     # shared.loaderCheckPoint = LoaderCheckPoint(args_dict)
     # 语句从main函数里取出放到函数外部
     # 然后在cli.py里初始化
-    args = None
-    args = parser.parse_args()
-    args_dict = vars(args)
-    shared.loaderCheckPoint = LoaderCheckPoint(args_dict)
-    main()
+    # args = None
+    # args = parser.parse_args()
+    # args_dict = vars(args)
+    # shared.loaderCheckPoint = LoaderCheckPoint(args_dict)
+    # main()
+    name_set = {}
+    with open('name.txt', 'r') as f:
+        for line in f:
+            line = line.strip('\n')
+            cl = line.split('__')
+            fn = line.replace('.pdf', '')
+            v = name_set.get(cl[1],[])
+            v.append(fn)
+            name_set[cl[1]] = v
+            v = name_set.get(cl[-3],[])
+            v.append(fn)
+            name_set[cl[-3]] = v
+    vs = get_name_set_path(name_set=name_set, query='请问，光云科技2019年的财务费用是多少元?')
+    logging.info(f"recall path:{vs}")

@@ -3,6 +3,7 @@ from vectorstores import MyFAISS
 from langchain.document_loaders import UnstructuredFileLoader, TextLoader, CSVLoader
 from configs.model_config import *
 import datetime
+import re
 from textsplitter import ChineseTextSplitter
 from typing import Any, List
 from utils import torch_gc
@@ -28,7 +29,7 @@ with open('user_dict.txt', 'r') as uf:
         if not ls.isdigit() and not '-' in ls:
             user_set.add(ls)
 
-# ocr = PaddleOCR(use_angle_cls=True, lang="ch", use_gpu=True, show_log=False)
+ocr = PaddleOCR(use_angle_cls=True, lang="ch", use_gpu=True, show_log=False)
 # patch HuggingFaceEmbeddings to make it hashable
 def _embeddings_hash(self):
     return hash(self.model_name)
@@ -64,6 +65,40 @@ def tree(filepath, ignore_dir_names=None, ignore_file_names=None):
                 if os.path.isdir(fullfilepath) and os.path.basename(fullfilepath) not in ignore_dir_names:
                     ret_list.extend(tree(fullfilepath, ignore_dir_names, ignore_file_names)[0])
     return ret_list, [os.path.basename(p) for p in ret_list]
+
+
+def load_file_v2(filepath, sentence_size=SENTENCE_SIZE, using_zh_title_enhance=ZH_TITLE_ENHANCE):
+
+    if filepath.lower().endswith(".md"):
+        loader = UnstructuredFileLoader(filepath, mode="elements")
+        docs = loader.load()
+    elif filepath.lower().endswith(".txt"):
+        loader = TextLoader(filepath, autodetect_encoding=True)
+        textsplitter = ChineseTextSplitter(pdf=False, sentence_size=sentence_size)
+        docs = loader.load_and_split(textsplitter)
+    elif filepath.lower().endswith(".pdf"):
+        # 暂且将paddle相关的loader改为动态加载，可以在不上传pdf/image知识文件的前提下使用protobuf=4.x
+        from loader import UnstructuredPaddlePDFLoader
+        loader = UnstructuredPaddlePDFLoader(filepath, ocr)
+        textsplitter = ChineseTextSplitter(pdf=True, sentence_size=sentence_size)
+        docs = loader.load_and_split(textsplitter)
+    elif filepath.lower().endswith(".jpg") or filepath.lower().endswith(".png"):
+        # 暂且将paddle相关的loader改为动态加载，可以在不上传pdf/image知识文件的前提下使用protobuf=4.x
+        from loader import UnstructuredPaddleImageLoader
+        loader = UnstructuredPaddleImageLoader(filepath, mode="elements")
+        textsplitter = ChineseTextSplitter(pdf=False, sentence_size=sentence_size)
+        docs = loader.load_and_split(text_splitter=textsplitter)
+    elif filepath.lower().endswith(".csv"):
+        loader = CSVLoader(filepath)
+        docs = loader.load()
+    else:
+        loader = UnstructuredFileLoader(filepath, mode="elements")
+        textsplitter = ChineseTextSplitter(pdf=False, sentence_size=sentence_size)
+        docs = loader.load_and_split(text_splitter=textsplitter)
+    if using_zh_title_enhance:
+        docs = zh_title_enhance(docs)
+    # write_check_file(filepath, docs)
+    return docs
 
 
 def load_file(filepath, sentence_size=SENTENCE_SIZE, using_zh_title_enhance=ZH_TITLE_ENHANCE):
@@ -167,6 +202,12 @@ class LocalDocQA:
                 file = os.path.split(filepath)[-1]
                 try:
                     docs = load_file(filepath, sentence_size)
+                    if len(docs) == 0:
+                        logger.info(f"{file} txt 抽取失败, 进行image 抽取")
+                        docs = load_file_v2(filepath, sentence_size)
+                    if len(docs) == 0:
+                        logger.info(f"{file} docs抽取失败")
+                        return None, []
                     logger.info(f"{file} 已成功加载")
                     loaded_files.append(filepath)
                     vector_store = MyFAISS.from_documents(docs, self.embeddings)  # docs 为Document列表
@@ -174,9 +215,11 @@ class LocalDocQA:
                     vector_store.save_local(vs_path)
                     return vs_path, loaded_files
                 except Exception as e:
+                    import traceback
+                    traceback.print_exc()
                     logger.error(e)
                     logger.info(f"{file} 未能成功加载")
-                    return None
+                    return None, []
             elif os.path.isdir(filepath):
                 docs = []
                 for fullfilepath, file in tqdm(zip(*tree(filepath, ignore_dir_names=['tmp_files'])), desc="加载文件"):
@@ -311,7 +354,7 @@ class LocalDocQA:
             vector_store.chunk_size = self.chunk_size
             vector_store.chunk_conent = self.chunk_conent
             vector_store.score_threshold = self.score_threshold
-            query_for_searh = query.split('?')[0]
+            query_for_searh = re.split(r"[?？]", query)[0]
             related_docs_with_score = vector_store.similarity_search_with_score(query_for_searh, k=self.top_k)
             cut = jieba.lcut(query_for_searh)
             for e in cut:
@@ -336,7 +379,7 @@ class LocalDocQA:
             history[-1][0] = query
             response = {"query": query,
                         "result": resp,
-                        "source_documents": related_docs_with_score}
+                        "source_documents": docs}
             yield response, history
 
     def get_knowledge_based_answer(self, query, vs_path, chat_history=[], streaming: bool = STREAMING):

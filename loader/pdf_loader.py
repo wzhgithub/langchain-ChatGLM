@@ -33,15 +33,16 @@ class UnstructuredPaddlePDFLoader(UnstructuredFileLoader):
                     text = page.get_text("")
                     fout.write(text)
                     fout.write("\n")
-                    # img_list = page.get_images()
-                    # for img in img_list:
-                    #     pix = fitz.Pixmap(doc, img[0])
-                    #     if pix.n - pix.alpha >= 4:
-                    #         pix = fitz.Pixmap(fitz.csRGB, pix)
-                    #     pix.save(img_name)
-                    #     result = self.ocr.ocr(img_name)
-                    #     ocr_result = [i[1][0] for line in result for i in line]
-                    #     fout.write("\n".join(ocr_result))
+                    if self.ocr:
+                        img_list = page.get_images()
+                        for img in img_list:
+                            pix = fitz.Pixmap(doc, img[0])
+                            if pix.n - pix.alpha >= 4:
+                                pix = fitz.Pixmap(fitz.csRGB, pix)
+                            pix.save(img_name)
+                            result = self.ocr.ocr(img_name)
+                            ocr_result = [i[1][0] for line in result for i in line]
+                            fout.write("\n".join(ocr_result))
             if os.path.exists(img_name):
                 os.remove(img_name)
             return txt_file_path
