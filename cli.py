@@ -56,16 +56,23 @@ def start_api(ip, port, **kwargs):
     shared.loaderCheckPoint = LoaderCheckPoint(DEFAULT_ARGS)
     api_start(host=ip, port=port, **kwargs)
 
+import datetime
+
 @start.command(name="qa", context_settings=dict(help_option_names=['-h', '--help']))
 @click.option('--index_path', default='/home/zh.wang/fintech_raw_dataset/index', show_default=True, type=str, help='faiss index dir index')
 @click.option('--submit_file', default='./submit_example_10.jsonl', show_default=True, type=str, help='submit file name')
-def start_qa(index_path, submit_file):
-    print("通过cli.py使用进行qa")
+@click.option('--index', default=0, show_default=True, type=int, help='sub task index')
+@click.option('--device_num', default=1, show_default=True, type=int, help='gpu number')
+@click.option('--suffix', default=datetime.datetime.now().strftime("%Y%m%d%H%M"), show_default=True, type=str, help='suffix')
+def start_qa(index_path, submit_file, index, device_num, suffix):
+    print(f"通过cli.py使用进行qa, suffix:{suffix}")
     from models import shared
     from models.loader import LoaderCheckPoint
     from models.loader.args import DEFAULT_ARGS
     shared.loaderCheckPoint = LoaderCheckPoint(DEFAULT_ARGS)
-    qa_start(index_path, submit_file)
+    n = index % device_num
+    shared.loaderCheckPoint.llm_device = f"cuda:{n}"
+    qa_start(index_path, submit_file, n, suffix)
 
 #     # 通过cli.py调用cli_demo时需要在cli.py里初始化模型，否则会报错：
     # langchain-ChatGLM: error: unrecognized arguments: start cli

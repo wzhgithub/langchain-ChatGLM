@@ -366,7 +366,7 @@ class LocalDocQA:
             docs.extend(related_docs_with_score)
         
         if len(docs) > 0:
-            prompt = generate_prompt(related_docs_with_score, query)
+            prompt = generate_prompt(docs, query)
         else:
             prompt = query
 
@@ -491,10 +491,10 @@ class Task:
         logger.info(f"{file}提交任务")
         try:
             if vs_path and os.path.isdir(vs_path) and "index.faiss" in os.listdir(vs_path):
-                os.remove(file)
+                # os.remove(file)
                 logger.info(f"{file} 已成功生成向量库 删除原文件 {file}")
                 return None
-            docs = load_file(file)
+            docs = load_file_v2(file)
             return (docs, file, vs_path)
         except Exception as e:
             logger.error(e)

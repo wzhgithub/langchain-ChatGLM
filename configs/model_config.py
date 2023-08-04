@@ -205,8 +205,8 @@ llm_model_dict = {
 }
 
 # LLM 名称
-LLM_MODEL = "chatglm2-6b-int4"
-# LLM_MODEL = "chatglm2-6b"
+# LLM_MODEL = "chatglm2-6b-int4"
+LLM_MODEL = "chatglm2-6b"
 # 量化加载8bit 模型
 LOAD_IN_8BIT = False
 # Load the model with bfloat16 precision. Requires NVIDIA Ampere GPU.
@@ -233,13 +233,14 @@ KB_ROOT_PATH = '/home/zh.wang/chatglm_llm_fintech_raw_dataset/knowledge_base/ind
 KB_TMP_PATH = '/home/zh.wang/chatglm_llm_fintech_raw_dataset/knowledge_base/tmp'
 
 # 基于上下文的prompt模版，请务必保留"{question}"和"{context}"
-PROMPT_TEMPLATE = """已知信息：
-{context} 
-
+PROMPT_TEMPLATE = """已知如下信息：
+```
+{context}
+```
 根据上述已知信息，简洁和专业的来回答用户的问题。
-如果无法从中得到答案，请说“根据已知信息无法回答该问题”或“没有提供足够的相关信息”。
-不允许在答案中添加编造成分，答案请使用中文，答案字数不要超过500个字。 
-如果需要问题需要回答数字结果，请直接给出数字答案。
+如果需要进行数据计算，请从上述信息中获取需要的数据。
+如果问题需要回答数字结果，请直接给出数字答案，不需要给出计算过程。
+请使用中文进行回答答案，答案字数请不要超过500个字。 
 问题是：{question}
 回答：
 """
